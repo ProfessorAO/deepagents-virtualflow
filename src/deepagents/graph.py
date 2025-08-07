@@ -25,7 +25,7 @@ It is critical that you mark todos as completed as soon as you are done with a t
 def create_deep_agent(
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
     instructions: str,
-    user_base_prompt: Optional[str],
+    user_base_prompt: Optional[str] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
