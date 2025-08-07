@@ -51,7 +51,7 @@ def create_deep_agent(
     if user_base_prompt is None:
         prompt = instructions + base_prompt
     else:
-        prompt = intstructions + user_base_prompt
+        prompt = instructions + user_base_prompt
     
     built_in_tools = [write_todos, write_file, read_file, ls, edit_file]
     if model is None:
