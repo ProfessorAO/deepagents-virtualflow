@@ -19,9 +19,6 @@ You have access to the `write_todos` tools to help you manage and plan tasks. Us
 These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
 
 It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
-## `task`
-
-- When doing web search, prefer to use the `task` tool in order to reduce context usage."""
 
 
 def create_deep_agent(
