@@ -1,6 +1,14 @@
 from deepagents.sub_agent import _create_task_tool, SubAgent
 from deepagents.model import get_default_model
-from deepagents.tools import write_todos, write_file, read_file, ls, edit_file
+from deepagents.tools import (
+    write_todos,
+    write_file,
+    read_file,
+    ls,
+    edit_file,
+    create_submit_tool,
+)
+from deepagents.prompts import BASE_PROMPT
 from deepagents.state import DeepAgentState
 from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
 from langchain_core.tools import BaseTool
@@ -11,16 +19,36 @@ from langgraph.prebuilt import create_react_agent
 StateSchema = TypeVar("StateSchema", bound=DeepAgentState)
 StateSchemaType = Type[StateSchema]
 
-base_prompt = """You have access to a number of standard tools
+# Built-in tools provided by every deep agent
+BUILT_IN_TOOLS = [write_todos, write_file, read_file, ls, edit_file]
 
-## `write_todos`
 
-You have access to the `write_todos` tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.
-These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
+def _compose_prompt(instructions: str, user_base_prompt: Optional[str],include_submit_note: bool) -> str:
+    """Compose the final system prompt.
 
-It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
+    - If user_base_prompt is provided, it replaces the default base prompt.
+    - Always appends the user instructions after a blank line.
+    - Optionally appends a submit section note when a submit schema is used.
+    """
+    base = user_base_prompt if user_base_prompt is not None else BASE_PROMPT
+    prompt = base + "\n\n" + instructions
+    if include_submit_note:
+        prompt += (
+            "\n\n## `submit`\n\n"
+            "As the final step, call the `submit` tool to validate and submit your work in the required schema. "
+            "Pass your draft (free text or JSON). The tool will validate strictly and return errors if it cannot conform."
+        )
+    return prompt
 
-"""
+def _maybe_add_submit_tool(tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]], submit_schema: Optional[type],submit_llm: Optional[LanguageModelLike], model: LanguageModelLike):
+    dynamic_tools = list(tools)
+    if submit_schema is not None:
+        submit_tool = create_submit_tool(
+            schema=submit_schema,
+            llm=submit_llm or model,
+        )
+        dynamic_tools.append(submit_tool)
+    return dynamic_tools
 
 def create_deep_agent(
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
@@ -29,6 +57,8 @@ def create_deep_agent(
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
+    submit_schema: Optional[type] = None,
+    submit_llm: Optional[LanguageModelLike] = None,
 ):
     """Create a deep agent.
 
@@ -49,23 +79,26 @@ def create_deep_agent(
         state_schema: The schema of the deep agent. Should subclass from DeepAgentState
     """
 
-    if user_base_prompt is None:
-        prompt = instructions + base_prompt
-    else:
-        prompt = instructions + user_base_prompt
-    
-    built_in_tools = [write_todos, write_file, read_file, ls, edit_file]
+    prompt = _compose_prompt(
+        instructions=instructions,
+        user_base_prompt=user_base_prompt,
+        include_submit_note=submit_schema is not None,
+    )
+
     if model is None:
         model = get_default_model()
     state_schema = state_schema or DeepAgentState
     task_tool = _create_task_tool(
-        list(tools) + built_in_tools,
+        list(tools) + BUILT_IN_TOOLS,
         instructions,
         subagents or [],
         model,
         state_schema
     )
-    all_tools = built_in_tools + list(tools) + [task_tool]
+    # Optionally add a schema-backed submit tool
+    dynamic_tools = _maybe_add_submit_tool(tools, submit_schema, submit_llm, model)
+
+    all_tools = BUILT_IN_TOOLS + dynamic_tools + [task_tool]
     return create_react_agent(
         model,
         prompt=prompt,

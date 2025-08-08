@@ -23,3 +23,6 @@ def file_reducer(l, r):
 class DeepAgentState(AgentState):
     todos: NotRequired[list[Todo]]
     files: Annotated[NotRequired[dict[str, str]], file_reducer]
+    output_submitted: bool = False
+    submission: str = ""
+   

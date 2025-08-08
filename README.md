@@ -1,23 +1,28 @@
-# 🧠🤖Deep Agents
+<p align="left">
+  <img src="virtualflow_logo.png" alt="Virtualflow Technologies" height="48"/>
+</p>
 
-Using an LLM to call tools in a loop is the simplest form of an agent. 
-This architecture, however, can yield agents that are “shallow” and fail to plan and act over longer, more complex tasks. 
-Applications like “Deep Research”, "Manus", and “Claude Code” have gotten around this limitation by implementing a combination of four things:
-a **planning tool**, **sub agents**, access to a **file system**, and a **detailed prompt**.
+# Virtualflow Deep Agents
 
-<img src="deep_agents.png" alt="deep agent" width="600"/>
+Production-ready AI agents for planning, tooling, sub-agents, and a virtual filesystem – built on LangGraph/LangChain and inspired by the excellent work in the original deepagents project.
 
-`deepagents` is a Python package that implements these in a general purpose way so that you can easily create a Deep Agent for your application.
+This repository is Virtualflow Technologies’ maintained distribution of deep agents with:
+- Default Fireworks models (configurable)
+- A robust in-memory virtual filesystem with nested paths
+- Comprehensive built-in tools (`ls`, `read_file`, `write_file`, `edit_file`, `write_todos`)
+- Optional structured submission via Pydantic + Trustcall
 
-**Acknowledgements: This project was primarily inspired by Claude Code, and initially was largely an attempt to see what made Claude Code general purpose, and make it even more so.**
+Original project: [hwchase17/deepagents](https://github.com/hwchase17/deepagents)
 
 ## Installation
 
 ```bash
 pip install deepagents
+# With Trustcall for structured submissions
+pip install "deepagents[structured]"
 ```
 
-## Usage
+## Quickstart
 
 (To run the example below, will need to `pip install tavily-python`)
 
@@ -58,8 +63,8 @@ Use this to run an internet search for a given query. You can specify the number
 
 # Create the agent
 agent = create_deep_agent(
-    [internet_search],
-    research_instructions,
+    tools=[internet_search],
+    instructions=research_instructions,
 )
 
 # Invoke the agent
@@ -126,7 +131,13 @@ agent = create_deep_agent(
 
 ### `model` (Optional)
 
-By default, `deepagents` uses `"claude-sonnet-4-20250514"`. You can customize this by passing any [LangChain model object](https://python.langchain.com/docs/integrations/chat/).
+By default, Virtualflow Deep Agents use a Fireworks-hosted model via `langchain-fireworks`:
+
+- Default chat model: `accounts/fireworks/models/kimi-k2-instruct`
+- Default structuring model (for Trustcall extraction): `accounts/fireworks/models/llama4-maverick-instruct-basic`
+- Required env var: `FIREWORKS_API_KEY`
+
+You can customize this by passing any [LangChain model object](https://python.langchain.com/docs/integrations/chat/).
 
 #### Example: Using a Custom Model
 
@@ -156,26 +167,25 @@ The below components are built into `deepagents` and helps make it work for deep
 
 ### System Prompt
 
-`deepagents` comes with a [built-in system prompt](src/deepagents/prompts.py). This is relatively detailed prompt that is heavily based on and inspired by [attempts](https://github.com/kn1026/cc/blob/main/claudecode.md) to [replicate](https://github.com/asgeirtj/system_prompts_leaks/blob/main/Anthropic/claude-code.md)
-Claude Code's system prompt. It was made more general purpose than Claude Code's system prompt.
-This contains detailed instructions for how to use the built-in planning tool, file system tools, and sub agents.
-Note that part of this system prompt [can be customized](#instructions-required)
+We ship a comprehensive base system prompt in `src/deepagents/prompts.py` that:
+- Explains planning expectations and todo usage
+- Documents the virtual filesystem and tool usage patterns
+- Describes sub-agent usage via the Task tool
+- Emphasizes quality, language matching, and artifact integrity
 
-Without this default system prompt - the agent would not be nearly as successful at going as it is.
-The importance of prompting for creating a "deep" agent cannot be understated.
+Your `instructions` are appended after the base prompt. The base prompt explicitly tells the model to treat the following project-specific instructions as primary.
 
-### Planing Tool
+### Planning Tool
 
 `deepagents` comes with a built-in planning tool. This planning tool is very simple and is based on ClaudeCode's TodoWrite tool.
 This tool doesn't actually do anything - it is just a way for the agent to come up with a plan, and then have that in the context to help keep it on track.
 
-### File System Tools
+### Virtual Filesystem & Tools
 
-`deepagents` comes with four built-in file system tools: `ls`, `edit_file`, `read_file`, `write_file`.
-These do not actually use a file system - rather, they mock out a file system using LangGraph's State object.
-This means you can easily run many of these agents on the same machine without worrying that they will edit the same underlying files.
+We provide four built-in file system tools: `ls`, `edit_file`, `read_file`, `write_file`.
+These operate on a virtual in-memory filesystem stored in the LangGraph State (`state["files"]`), not your host filesystem. This means you can run many agents on the same machine without risk of cross-editing real files.
 
-Right now the "file system" will only be one level deep (no sub directories).
+Nested paths are supported. You can use keys like `src/utils/helpers.py` or `reports/2025/q1.md`—they are stored as string paths in the state map. Directory creation is implicit: writing `a/b/c.txt` creates the path key in the virtual filesystem.
 
 These files can be passed in (and also retrieved) by using the `files` key in the LangGraph State object.
 
@@ -190,6 +200,57 @@ result = agent.invoke({
 
 # Access any files afterwards like this
 result["files"]
+```
+
+#### Built-in tools and behavior
+
+- `ls`:
+  - Lists the keys of all files currently in the virtual filesystem as path strings (e.g., `"a/b.txt"`).
+  - This does not perform hierarchical traversal; it returns the full keys that exist.
+
+- `read_file(file_path, offset=0, limit=2000)`:
+  - Reads from the virtual filesystem (`state["files"][file_path]`).
+  - Returns contents with line numbers in `cat -n` style: six-character right-aligned line number + tab + content.
+  - Supports `offset` (0-based line index) and `limit` (max lines) for partial reads.
+  - Long lines are truncated to 2000 chars.
+  - If the file does not exist, returns an error message.
+
+- `write_file(file_path, content)`:
+  - Writes/overwrites a file at `file_path` in the virtual filesystem.
+  - Implicitly creates nested path keys if needed.
+
+- `edit_file(file_path, old_string, new_string, replace_all=False)`:
+  - Performs exact string replacement within a single file’s contents.
+  - If `replace_all=False`, the edit requires `old_string` to be unique in the file; otherwise it returns a friendly error suggesting `replace_all=True` or providing more specific context.
+  - Updates the file in the virtual filesystem and emits a corresponding tool message.
+
+### Submitting structured outputs (Optional)
+
+You can require the agent to submit its final work in a strict Pydantic schema. Pass your schema via `submit_schema` and a `submit` tool will be auto-injected. The tool validates with Pydantic first and falls back to [Trustcall](https://github.com/hinthornw/trustcall?tab=readme-ov-file#complex-schema) to coerce/repair difficult outputs.
+
+Installation options:
+- Core package only: `pip install deepagents`
+- With Trustcall support: `pip install deepagents[structured]`
+
+```python
+from pydantic import BaseModel, Field
+from deepagents import create_deep_agent
+
+class AnalysisReport(BaseModel):
+    title: str
+    summary: str
+    items: list[str] = Field(default_factory=list)
+
+agent = create_deep_agent(
+    tools=[...],
+    instructions="At the end, call the 'submit' tool to submit your work in the required format.",
+    submit_schema=AnalysisReport,          # auto-adds a submit tool named 'submit'
+    submit_llm=None,                       # optional; defaults to a structuring model via get_default_structuring_model()
+)
+
+res = agent.invoke({"messages": [("user", "Do the task and submit") ]})
+res["output_submitted"]  # True/False
+res["submission"]        # JSON string matching AnalysisReport
 ```
 
 ### Sub Agents
@@ -238,3 +299,7 @@ asyncio.run(main())
 - [ ] Create an example of a deep coding agent built on top of this
 - [ ] Benchmark the example of [deep research agent](examples/research/research_agent.py)
 - [ ] Add human-in-the-loop support for tools
+
+## Attribution
+
+This distribution is based on and owes a lot to the original work in [hwchase17/deepagents](https://github.com/hwchase17/deepagents). We’ve adapted and expanded it for Virtualflow Technologies’ production needs while keeping the spirit of the original project.

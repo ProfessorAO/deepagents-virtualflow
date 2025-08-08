@@ -1,15 +1,21 @@
 from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
-from typing import Annotated
+from typing import Annotated, Optional, Type
 from langgraph.prebuilt import InjectedState
+from pydantic import BaseModel, ValidationError
+import json
 
 from deepagents.prompts import (
     WRITE_TODOS_DESCRIPTION,
     EDIT_DESCRIPTION,
     TOOL_DESCRIPTION,
+    LS_DESCRIPTION,
+    WRITE_FILE_DESCRIPTION,
 )
 from deepagents.state import Todo, DeepAgentState
+from deepagents.model import get_default_structuring_model
+from langchain_core.language_models import LanguageModelLike
 
 
 @tool(description=WRITE_TODOS_DESCRIPTION)
@@ -25,7 +31,7 @@ def write_todos(
         }
     )
 
-
+@tool(description=LS_DESCRIPTION)
 def ls(state: Annotated[DeepAgentState, InjectedState]) -> list[str]:
     """List all files"""
     return list(state.get("files", {}).keys())
@@ -77,6 +83,7 @@ def read_file(
     return "\n".join(result_lines)
 
 
+@tool(description=WRITE_FILE_DESCRIPTION)
 def write_file(
     file_path: str,
     content: str,
@@ -147,3 +154,102 @@ def edit_file(
             ],
         }
     )
+
+
+# Factory to create a structured submission tool using a user-provided Pydantic schema
+def create_submit_tool(
+    schema: Type[BaseModel],
+    llm: Optional[LanguageModelLike] = None,
+    tool_name: str = "submit",
+    description: Optional[str] = None,
+):
+    """Create a submit tool that validates output against a Pydantic schema.
+
+    Fast path: validate provided draft as JSON against the schema.
+    Fallback: use Trustcall to coerce arbitrary text/JSON into the schema.
+
+    Updates DeepAgentState: sets output_submitted=True and stores JSON string in submission.
+    """
+
+    desc = description or (
+        "FINAL STEP ONLY. Validate and submit work against a strict schema. "
+        "Pass your draft (free text or JSON). The tool will: 1) try fast Pydantic validation; "
+        "2) if that fails, invoke Trustcall to coerce it."
+    )
+
+    # Lazily initialize Trustcall extractor to avoid hard dependency unless used
+    extractor_holder = {"extractor": None}
+
+    def _get_extractor():
+        if extractor_holder["extractor"] is not None:
+            return extractor_holder["extractor"]
+        try:
+            from trustcall import create_extractor  # type: ignore
+        except Exception as e:  # pragma: no cover - dependency missing
+            raise RuntimeError(
+                "trustcall is required for submit fallback. Install with `pip install trustcall`."
+            ) from e
+        _llm = llm or get_default_structuring_model()
+        # Tool choice should match schema name
+        extractor = create_extractor(
+            _llm, tools=[schema], tool_choice=schema.__name__
+        )
+        extractor_holder["extractor"] = extractor
+        return extractor
+
+    def _validate_or_coerce(draft: str) -> BaseModel:
+        # Fast path: try JSON validation first
+        try:
+            return schema.model_validate_json(draft)
+        except Exception:
+            # Fallback: Trustcall coercion
+            extractor = _get_extractor()
+            extraction = extractor.invoke({"input": draft})
+            responses = extraction.get("responses") or []
+            if not responses:
+                raise RuntimeError("Trustcall returned no responses for submission.")
+            return responses[0]
+
+    def _submit(
+        draft: str,
+        state: Annotated[DeepAgentState, InjectedState],
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Command:
+        try:
+            obj = _validate_or_coerce(draft)
+            submission_json = (
+                obj.model_dump_json(indent=None) if isinstance(obj, BaseModel) else json.dumps(obj)
+            )
+            return Command(
+                update={
+                    "output_submitted": True,
+                    "submission": submission_json,
+                    "messages": [
+                        ToolMessage(
+                            "Submitted validated output.", tool_call_id=tool_call_id
+                        )
+                    ],
+                }
+            )
+        except ValidationError as ve:
+            return Command(
+                update={
+                    "messages": [
+                        ToolMessage(
+                            f"Validation failed: {ve}", tool_call_id=tool_call_id
+                        )
+                    ]
+                }
+            )
+        except Exception as e:
+            return Command(
+                update={
+                    "messages": [
+                        ToolMessage(
+                            f"Error during submission: {e}", tool_call_id=tool_call_id
+                        )
+                    ]
+                }
+            )
+
+    return tool(_submit, name=tool_name, description=desc)

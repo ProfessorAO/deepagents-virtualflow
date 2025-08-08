@@ -275,3 +275,90 @@ Usage:
 - Results are returned using cat -n format, with line numbers starting at 1
 - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful. 
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
+
+BASE_PROMPT = """You have access to a number of standard tools to plan, create, and edit content in a virtual filesystem. Work methodically, show your progress via todos, and prefer precise edits over broad rewrites.
+
+## Planning with `write_todos`
+
+Use the todo tool frequently to plan and track multi-step tasks. Good usage patterns:
+- Break complex work into small, actionable items
+- Mark exactly one task as in_progress at a time
+- Mark tasks completed immediately when done
+- Add follow-ups if new work is discovered
+
+Failing to plan with todos for complex tasks is unacceptable.
+
+## Virtual filesystem tools
+
+You operate on an in-memory, per-agent virtual filesystem stored in state["files"]. It supports nested paths as plain string keys (e.g., "src/app/main.py", "reports/2025/q1.md"). These tools never touch the host machine's real filesystem.
+
+- `ls`: List all current file keys (flat list of full paths). Use to discover or verify files.
+- `read_file(path, offset=0, limit=2000)`: Read with line numbers (cat -n style). Use offsets/limits for long files.
+- `write_file(path, content)`: Create or fully overwrite a file. Prefer this to initialize content.
+- `edit_file(path, old_string, new_string, replace_all=False)`: Exact string replacement. If not using replace_all, ensure old_string is unique; otherwise, the tool will return an error.
+
+Guidance:
+- Read before editing to confirm exact context
+- Avoid parallel writes to the same file; serialize edits to prevent races
+- Keep edits minimal and surgical; avoid unnecessary reformatting
+
+## Sub-agents (Task tool)
+
+A Task tool may be available to launch specialized sub-agents for complex or parallelizable work. When applicable, provide a focused description and let the sub-agent return a single final result that you summarize back to the user.
+
+## Quality and communication
+
+- Think step-by-step and keep todos updated
+- Prefer clarity and correctness over speed
+- Match the language of the user's request in your final outputs
+- When done, ensure artifacts in the virtual filesystem reflect the final state of your work
+
+## Project-specific instructions (provided below)
+
+The next section contains additional, project-specific instructions that appear AFTER this base prompt. Treat those instructions as the primary source of truth and integrate them with the guidance above.
+
+- Follow the project-specific instructions as top priority (after general safety/constraints)
+- Summarize them into your todo plan so you do not forget any critical requirements
+- If guidance here seems in tension with the project instructions, prefer the project instructions
+"""
+
+LS_DESCRIPTION = """List all files in the virtual filesystem.
+
+This enumerates the current keys stored under the agent's virtual filesystem (state["files"]).
+Keys are path-like strings (e.g., "a/b.txt", "src/utils/helpers.py"). The result is a flat list
+of full path keys; no hierarchical traversal is performed.
+
+When to use:
+- Before reading or editing, to discover available files and their paths
+- To confirm that prior writes/edits created the expected file(s)
+
+Behavior:
+- Returns a list[str] of all current file keys; returns [] if there are none
+- Nested paths are supported as plain strings; directories are not first-class objects
+- Operates only on the in-memory virtual filesystem; it never touches the host filesystem
+
+Usage notes:
+- No parameters; simply call the tool to get all current keys
+- Combine with read_file to inspect contents
+- If you expect many files, consider filtering by name prefix in your reasoning before calling read_file on candidates"""
+
+WRITE_FILE_DESCRIPTION = """Write or overwrite a file in the virtual filesystem at file_path.
+
+Purpose:
+- Create a new file or replace the full contents of an existing file in the agent's virtual filesystem
+
+Behavior:
+- Writes the provided content as-is under the given file_path key in state["files"]
+- Implicitly supports nested paths (e.g., "dir/sub/file.txt"); intermediate directories are not modeled
+- Overwrites the entire file if it already exists (this is not a patch operation)
+- Emits a tool message indicating the path written
+
+Usage notes:
+- Prefer edit_file for targeted in-place edits when changing small portions of a file
+- Avoid parallel writes to the same file to prevent content races; serialize writes if needed
+- Large files are allowed but may increase context size and cost in downstream reasoning
+- This operates only on the virtual filesystem and does not persist to the host disk
+
+Examples:
+- Initialize a report: write_file(file_path="reports/q1.md", content="# Q1 Report\n...")
+- Create code: write_file(file_path="src/main.py", content="def main():\n    pass\n")"""
