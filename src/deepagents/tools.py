@@ -192,7 +192,7 @@ def create_submit_tool(
         _llm = llm or get_default_structuring_model()
         # Tool choice should match schema name
         extractor = create_extractor(
-            _llm, tools=[schema], tool_choice=schema.__name__
+            _llm, tools=[schema], tool_choice=schema.__name__, max_attempts=3
         )
         extractor_holder["extractor"] = extractor
         return extractor

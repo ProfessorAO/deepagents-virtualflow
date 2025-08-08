@@ -253,6 +253,35 @@ res["output_submitted"]  # True/False
 res["submission"]        # JSON string matching AnalysisReport
 ```
 
+#### Variant responses with Union
+
+You can allow the agent to submit one of multiple formats by using a discriminated Union in your schema:
+
+```python
+from typing import Literal, Union, Annotated
+from pydantic import BaseModel, Field
+
+class AnalysisReport(BaseModel):
+    kind: Literal["report"]
+    title: str
+    summary: str
+
+class AgentScratchpad(BaseModel):
+    kind: Literal["scratchpad"]
+    notes: list[str]
+
+class AgentResponse(BaseModel):
+    response: Annotated[Union[AnalysisReport, AgentScratchpad], Field(discriminator="kind")]
+
+agent = create_deep_agent(
+    tools=[...],
+    instructions="Pick the appropriate response variant; set 'kind' accordingly, then call submit.",
+    submit_schema=AgentResponse,
+)
+```
+
+This works with the fast Pydantic path and the Trustcall fallback for complex/nested schemas.
+
 ### Sub Agents
 
 `deepagents` comes with the built-in ability to call sub agents (based on Claude Code).
