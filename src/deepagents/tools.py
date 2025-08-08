@@ -192,7 +192,7 @@ def create_submit_tool(
         _llm = llm or get_default_structuring_model()
         model_type, tool_choice_name = _ensure_model(schema)
         extractor = create_extractor(
-            _llm, tools=[schema], tool_choice=tool_choice_name, max_attempts=3
+            _llm, tools=[model_type], tool_choice=tool_choice_name, max_attempts=3
         )
         extractor_holder["extractor"] = extractor
         return extractor
@@ -269,4 +269,6 @@ def create_submit_tool(
                 }
             )
 
-    return tool(_submit, name=tool_name, description=desc)
+    # Assign the desired tool name via function __name__ (decorator infers name from func)
+    _submit.__name__ = tool_name
+    return tool(_submit, description=desc)

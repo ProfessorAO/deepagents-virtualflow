@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from deepagents.sub_agent import _create_task_tool, SubAgent
 from deepagents.model import get_default_model
 from deepagents.tools import (
@@ -10,7 +11,7 @@ from deepagents.tools import (
 )
 from deepagents.prompts import BASE_PROMPT
 from deepagents.state import DeepAgentState
-from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
+from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional, Dict
 from langchain_core.tools import BaseTool
 from langchain_core.language_models import LanguageModelLike
 
@@ -43,6 +44,7 @@ def _compose_prompt(instructions: str, user_base_prompt: Optional[str],include_s
 def _maybe_add_submit_tool(tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]], submit_schema: Optional[type],submit_llm: Optional[LanguageModelLike], model: LanguageModelLike):
     dynamic_tools = list(tools)
     if submit_schema is not None:
+        
         submit_tool = create_submit_tool(
             schema=submit_schema,
             llm=submit_llm or model,
@@ -57,7 +59,7 @@ def create_deep_agent(
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
-    submit_schema: Optional[type] = None,
+    submit_schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None, 
     submit_llm: Optional[LanguageModelLike] = None,
 ):
     """Create a deep agent.
