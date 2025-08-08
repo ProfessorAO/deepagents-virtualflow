@@ -13,7 +13,8 @@ dependencies = [
 
 [project.optional-dependencies]
 structured = [
-    "trustcall>=0.1.0",
+    # Pin to available releases on PyPI
+    "trustcall>=0.0.34,<0.1.0",
 ]
 
 
