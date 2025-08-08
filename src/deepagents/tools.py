@@ -1,9 +1,9 @@
 from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
-from typing import Annotated, Optional, Type
+from typing import Annotated, Optional, Type, Union, Dict, Any
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 import json
 
 from deepagents.prompts import (
@@ -158,7 +158,7 @@ def edit_file(
 
 # Factory to create a structured submission tool using a user-provided Pydantic schema
 def create_submit_tool(
-    schema: Type[BaseModel],
+    schema: Union[Type[BaseModel], Dict[str, Any]],
     llm: Optional[LanguageModelLike] = None,
     tool_name: str = "submit",
     description: Optional[str] = None,
@@ -190,17 +190,34 @@ def create_submit_tool(
                 "trustcall is required for submit fallback. Install with `pip install trustcall`."
             ) from e
         _llm = llm or get_default_structuring_model()
-        # Tool choice should match schema name
+        model_type, tool_choice_name = _ensure_model(schema)
         extractor = create_extractor(
-            _llm, tools=[schema], tool_choice=schema.__name__, max_attempts=3
+            _llm, tools=[schema], tool_choice=tool_choice_name, max_attempts=3
         )
         extractor_holder["extractor"] = extractor
         return extractor
 
+    def _ensure_model(schema_or_dict: Union[Type[BaseModel], Dict[str, Any]]) -> tuple[Type[BaseModel], str]:
+        if isinstance(schema_or_dict, type) and issubclass(schema_or_dict, BaseModel):
+            return schema_or_dict, schema_or_dict.__name__
+        if isinstance(schema_or_dict, dict):
+            name = schema_or_dict.get("title") or "Submission"
+            properties: Dict[str, Any] = schema_or_dict.get("properties", {})
+            required = set(schema_or_dict.get("required", []))
+            field_defs = {}
+            for field_name, _spec in properties.items():
+                # Use Any typing for broad compatibility; required fields use Ellipsis
+                default = ... if field_name in required else _spec.get("default", None)
+                field_defs[field_name] = (Any, default)
+            dynamic_model: Type[BaseModel] = create_model(name, **field_defs)  # type: ignore
+            return dynamic_model, name
+        raise TypeError("submit_schema must be a Pydantic BaseModel subclass or a JSON-schema-like dict")
+
     def _validate_or_coerce(draft: str) -> BaseModel:
         # Fast path: try JSON validation first
         try:
-            return schema.model_validate_json(draft)
+            model_type, _ = _ensure_model(schema)
+            return model_type.model_validate_json(draft)
         except Exception:
             # Fallback: Trustcall coercion
             extractor = _get_extractor()
