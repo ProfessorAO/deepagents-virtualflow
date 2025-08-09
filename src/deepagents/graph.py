@@ -98,8 +98,9 @@ def create_deep_agent(
     if model is None:
         model = get_default_model()
     state_schema = state_schema or DeepAgentState
+    # Sub-agents should only have access to built-in tools, not user tools
     task_tool = _create_task_tool(
-        list(tools) + BUILT_IN_TOOLS,
+        BUILT_IN_TOOLS,
         instructions,
         subagents or [],
         model,

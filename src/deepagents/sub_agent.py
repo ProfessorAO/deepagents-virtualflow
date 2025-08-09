@@ -19,19 +19,22 @@ class SubAgent(TypedDict):
 
 
 def _create_task_tool(tools, instructions, subagents: list[SubAgent], model, state_schema):
-    agents = {
-        "general-purpose": create_react_agent(model, prompt=instructions, tools=tools)
-    }
-    tools_by_name = {}
+    # Only allow built-in tools for sub-agents; drop any user tools and 'submit'
+    normalized_tools: list[BaseTool] = []
     for tool_ in tools:
         if not isinstance(tool_, BaseTool):
             tool_ = tool(tool_)
-        tools_by_name[tool_.name] = tool_
+        normalized_tools.append(tool_)
+    subagent_tools = [t for t in normalized_tools if t.name in {"write_todos", "write_file", "read_file", "ls", "edit_file"}]
+
+    agents = {
+        "general-purpose": create_react_agent(
+            model, prompt=instructions, tools=subagent_tools, state_schema=state_schema
+        )
+    }
     for _agent in subagents:
-        if "tools" in _agent:
-            _tools = [tools_by_name[t] for t in _agent["tools"]]
-        else:
-            _tools = tools
+        # Ignore any per-agent custom tool lists; enforce built-ins only
+        _tools = subagent_tools
         agents[_agent["name"]] = create_react_agent(
             model, prompt=_agent["prompt"], tools=_tools, state_schema=state_schema
         )
