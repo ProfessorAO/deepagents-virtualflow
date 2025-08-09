@@ -168,7 +168,7 @@ def create_submit_tool(
     Fast path: validate provided draft as JSON against the schema.
     Fallback: use Trustcall to coerce arbitrary text/JSON into the schema.
 
-    Updates DeepAgentState: sets output_submitted=True and stores JSON string in submission.
+    Updates DeepAgentState: stores compact JSON string in `submission`.
     """
 
     desc = description or (
@@ -191,6 +191,8 @@ def create_submit_tool(
             ) from e
         _llm = llm or get_default_structuring_model()
         model_type, tool_choice_name = _ensure_model(schema)
+        # Minor debug output for visibility when Trustcall is used
+        print("[submit] Trustcall: initializing extractor…")
         extractor = create_extractor(
             _llm, tools=[model_type], tool_choice=tool_choice_name, max_attempts=3
         )
@@ -296,26 +298,32 @@ def create_submit_tool(
                 return model_type.model_validate_json(draft)
             except Exception:
                 # Fallback: Trustcall coercion
+                print("[submit] Trustcall: attempting coercion for string draft…")
                 extractor = _get_extractor()
                 extraction = extractor.invoke({"input": draft})
                 responses = extraction.get("responses") or []
                 if not responses:
                     raise RuntimeError("Trustcall returned no responses for submission.")
-                return responses[0]
+                print("[submit] Trustcall: coercion produced a response. Validating with Pydantic…")
+                # Extra safety: validate the coerced structure against the schema
+                return model_type.model_validate(responses[0])
 
         # Last resort: try coercion on stringified input
+        print("[submit] Trustcall: attempting coercion for non-string draft…")
         extractor = _get_extractor()
         extraction = extractor.invoke({"input": json.dumps(draft)})
         responses = extraction.get("responses") or []
         if not responses:
             raise RuntimeError("Trustcall returned no responses for submission.")
-        return responses[0]
+        print("[submit] Trustcall: coercion produced a response. Validating with Pydantic…")
+        # Extra safety: validate the coerced structure against the schema
+        return model_type.model_validate(responses[0])
 
     class SubmitArgs(BaseModel):
-        draft: Any
+        draft: str
 
     def _submit(
-        draft: Any,
+        draft: str,
         state: Annotated[DeepAgentState, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
@@ -328,7 +336,6 @@ def create_submit_tool(
             )
             return Command(
                 update={
-                    "output_submitted": True,
                     "submission": submission_json,
                     "messages": [
                         ToolMessage(

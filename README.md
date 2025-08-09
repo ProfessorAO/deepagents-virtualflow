@@ -249,8 +249,7 @@ agent = create_deep_agent(
 )
 
 res = agent.invoke({"messages": [("user", "Do the task and submit") ]})
-res["output_submitted"]  # True/False
-res["submission"]        # JSON string matching AnalysisReport
+res["submission"]        # JSON string matching AnalysisReport (non-empty when submitted)
 ```
 
 #### Variant responses with Union

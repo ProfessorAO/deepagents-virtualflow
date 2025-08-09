@@ -37,8 +37,8 @@ def _compose_prompt(instructions: str, user_base_prompt: Optional[str],include_s
         prompt += (
             "\n\n## `submit`\n\n"
             "As the final step, call the `submit` tool to validate and submit your work in the required schema. "
-            "Pass your draft (free text or JSON). The tool will validate strictly and return errors if it cannot conform.\n"
-            "Rules: Call `submit` exactly once with a single JSON object that matches the schema. Do not include prose in the draft; only structured content."
+            "Pass your draft as a single JSON string (NOT a JSON object argument). Use only double quotes and no trailing commas. Do not wrap in Markdown.\n"
+            "Rules: Call `submit` exactly once. Provide only the structured content in the string; no prose. ENDS YOUR TURN WHEN YOU CALL SUBMIT."
         )
     return prompt
 
