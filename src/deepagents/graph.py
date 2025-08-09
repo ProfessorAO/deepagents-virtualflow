@@ -37,20 +37,28 @@ def _compose_prompt(instructions: str, user_base_prompt: Optional[str],include_s
         prompt += (
             "\n\n## `submit`\n\n"
             "As the final step, call the `submit` tool to validate and submit your work in the required schema. "
-            "Pass your draft (free text or JSON). The tool will validate strictly and return errors if it cannot conform."
+            "Pass your draft (free text or JSON). The tool will validate strictly and return errors if it cannot conform.\n"
+            "Rules: Call `submit` exactly once with a single JSON object that matches the schema. Do not include prose in the draft; only structured content."
         )
     return prompt
 
-def _maybe_add_submit_tool(tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]], submit_schema: Optional[type],submit_llm: Optional[LanguageModelLike], model: LanguageModelLike):
-    dynamic_tools = list(tools)
+def _maybe_add_submit_tool(
+    submit_schema: Optional[type],
+    submit_llm: Optional[LanguageModelLike],
+    model: LanguageModelLike,
+):
+    """Return a list of extra tools (currently just the submit tool if configured).
+
+    Does not echo back the user-provided tools to avoid duplication.
+    """
+    extra_tools: list[Union[BaseTool, Callable, dict[str, Any]]] = []
     if submit_schema is not None:
-        
         submit_tool = create_submit_tool(
             schema=submit_schema,
             llm=submit_llm or model,
         )
-        dynamic_tools.append(submit_tool)
-    return dynamic_tools
+        extra_tools.append(submit_tool)
+    return extra_tools
 
 def create_deep_agent(
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
@@ -98,9 +106,10 @@ def create_deep_agent(
         state_schema
     )
     # Optionally add a schema-backed submit tool
-    dynamic_tools = _maybe_add_submit_tool(tools, submit_schema, submit_llm, model)
+    submit_tools = _maybe_add_submit_tool(submit_schema, submit_llm, model)
 
-    all_tools = BUILT_IN_TOOLS + dynamic_tools + [task_tool]
+    # Order: built-in tools, user tools, optional submit tool, and the task tool
+    all_tools = BUILT_IN_TOOLS + list(tools) + submit_tools + [task_tool]
     return create_react_agent(
         model,
         prompt=prompt,

@@ -1,9 +1,9 @@
 from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
-from typing import Annotated, Optional, Type, Union, Dict, Any
+from typing import Annotated, Optional, Type, Union, Dict, Any, List
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, ValidationError, create_model
+from pydantic import BaseModel, ValidationError, create_model, ConfigDict, TypeAdapter
 import json
 
 from deepagents.prompts import (
@@ -197,45 +197,134 @@ def create_submit_tool(
         extractor_holder["extractor"] = extractor
         return extractor
 
+    def _adapter_for_schema(schema_or_dict: Union[Type[BaseModel], Dict[str, Any]]):
+        """Return a TypeAdapter for root array schemas; otherwise None."""
+        if isinstance(schema_or_dict, dict) and schema_or_dict.get("type") == "array":
+            # Minimal support: accept any list; stronger typing would recurse on items
+            return TypeAdapter(List[Any])
+        return None
+
+    def _json_schema_type_to_annotation(spec: Dict[str, Any], parent_name: str = "Item") -> Any:
+        """Map a JSON Schema fragment to a Python type annotation (shallow but useful)."""
+        t = spec.get("type")
+        # Handle union types like ["string", "null"]
+        if isinstance(t, list):
+            non_null = [x for x in t if x != "null"]
+            if not non_null:
+                return Any
+            primary = non_null[0]
+            ann = _json_schema_type_to_annotation({"type": primary, **{k: v for k, v in spec.items() if k != "type"}}, parent_name)
+            return Optional[ann]
+
+        if t == "string":
+            return str
+        if t == "number":
+            return float
+        if t == "integer":
+            return int
+        if t == "boolean":
+            return bool
+        if t == "array":
+            items = spec.get("items")
+            item_type = _json_schema_type_to_annotation(items, parent_name + "Item") if isinstance(items, dict) else Any
+            return List[item_type]
+        if t == "object":
+            # Nested object; recurse to build a nested model if properties exist
+            props = spec.get("properties")
+            if isinstance(props, dict):
+                nested_model, _ = _build_model_from_schema(spec, name=parent_name.capitalize())
+                return nested_model
+            return Dict[str, Any]
+        # Fallback
+        return Any
+
+    def _build_model_from_schema(schema_dict: Dict[str, Any], name: str) -> tuple[Type[BaseModel], str]:
+        properties: Dict[str, Any] = schema_dict.get("properties", {})
+        required = set(schema_dict.get("required", []))
+        field_defs = {}
+        for field_name, _spec in properties.items():
+            ann = _json_schema_type_to_annotation(_spec, parent_name=field_name)
+            default = ... if field_name in required else _spec.get("default", None)
+            field_defs[field_name] = (ann, default)
+
+        class _Base(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        dynamic_model: Type[BaseModel] = create_model(name, __base__=_Base, **field_defs)  # type: ignore
+        return dynamic_model, name
+
     def _ensure_model(schema_or_dict: Union[Type[BaseModel], Dict[str, Any]]) -> tuple[Type[BaseModel], str]:
         if isinstance(schema_or_dict, type) and issubclass(schema_or_dict, BaseModel):
             return schema_or_dict, schema_or_dict.__name__
         if isinstance(schema_or_dict, dict):
+            # Only build a model for object-like schemas; root-array handled via TypeAdapter in validator
             name = schema_or_dict.get("title") or "Submission"
-            properties: Dict[str, Any] = schema_or_dict.get("properties", {})
-            required = set(schema_or_dict.get("required", []))
-            field_defs = {}
-            for field_name, _spec in properties.items():
-                # Use Any typing for broad compatibility; required fields use Ellipsis
-                default = ... if field_name in required else _spec.get("default", None)
-                field_defs[field_name] = (Any, default)
-            dynamic_model: Type[BaseModel] = create_model(name, **field_defs)  # type: ignore
-            return dynamic_model, name
+            if schema_or_dict.get("type") == "object" or "properties" in schema_or_dict:
+                return _build_model_from_schema(schema_or_dict, name=name)
+            # Fallback: no properties, treat as free-form object
+            return _build_model_from_schema({"properties": {}}, name=name)
         raise TypeError("submit_schema must be a Pydantic BaseModel subclass or a JSON-schema-like dict")
 
-    def _validate_or_coerce(draft: str) -> BaseModel:
-        # Fast path: try JSON validation first
-        try:
-            model_type, _ = _ensure_model(schema)
-            return model_type.model_validate_json(draft)
-        except Exception:
-            # Fallback: Trustcall coercion
-            extractor = _get_extractor()
-            extraction = extractor.invoke({"input": draft})
-            responses = extraction.get("responses") or []
-            if not responses:
-                raise RuntimeError("Trustcall returned no responses for submission.")
-            return responses[0]
+    def _validate_or_coerce(draft: Any) -> BaseModel | Dict[str, Any]:
+        """Validate the draft against the schema, coercing only if needed.
+
+        Accepts:
+        - Pydantic model instance (returned as-is)
+        - dict/list (validated via model_validate)
+        - str (validated via model_validate_json; falls back to Trustcall on failure)
+        """
+        # Root array support via TypeAdapter
+        adapter = _adapter_for_schema(schema)
+        if adapter is not None:
+            if isinstance(draft, str):
+                return adapter.validate_json(draft)
+            return adapter.validate_python(draft)
+
+        model_type, _ = _ensure_model(schema)
+
+        # Pydantic model provided
+        if isinstance(draft, BaseModel):
+            return draft
+
+        # Native Python structure provided
+        if isinstance(draft, (dict, list)):
+            return model_type.model_validate(draft)
+
+        # String input: attempt JSON fast-path
+        if isinstance(draft, str):
+            try:
+                return model_type.model_validate_json(draft)
+            except Exception:
+                # Fallback: Trustcall coercion
+                extractor = _get_extractor()
+                extraction = extractor.invoke({"input": draft})
+                responses = extraction.get("responses") or []
+                if not responses:
+                    raise RuntimeError("Trustcall returned no responses for submission.")
+                return responses[0]
+
+        # Last resort: try coercion on stringified input
+        extractor = _get_extractor()
+        extraction = extractor.invoke({"input": json.dumps(draft)})
+        responses = extraction.get("responses") or []
+        if not responses:
+            raise RuntimeError("Trustcall returned no responses for submission.")
+        return responses[0]
+
+    class SubmitArgs(BaseModel):
+        draft: Any
 
     def _submit(
-        draft: str,
+        draft: Any,
         state: Annotated[DeepAgentState, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
         try:
             obj = _validate_or_coerce(draft)
+            # Compact, unicode-safe JSON
             submission_json = (
-                obj.model_dump_json(indent=None) if isinstance(obj, BaseModel) else json.dumps(obj)
+                obj.model_dump_json() if isinstance(obj, BaseModel)
+                else json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
             )
             return Command(
                 update={
@@ -249,15 +338,19 @@ def create_submit_tool(
                 }
             )
         except ValidationError as ve:
-            return Command(
-                update={
-                    "messages": [
-                        ToolMessage(
-                            f"Validation failed: {ve}", tool_call_id=tool_call_id
-                        )
-                    ]
-                }
-            )
+            # Short, actionable error message
+            try:
+                errs = ve.errors()
+                mini = "; ".join([
+                    f"{'.'.join(str(x) for x in e.get('loc', []))}: {e.get('msg', '')}"
+                    for e in errs[:5]
+                ])
+            except Exception:
+                mini = str(ve)
+            mini = (mini[:297] + "...") if len(mini) > 300 else mini
+            return Command(update={
+                "messages": [ToolMessage(f"Validation failed: {mini}", tool_call_id=tool_call_id)]
+            })
         except Exception as e:
             return Command(
                 update={
@@ -271,4 +364,4 @@ def create_submit_tool(
 
     # Assign the desired tool name via function __name__ (decorator infers name from func)
     _submit.__name__ = tool_name
-    return tool(_submit, description=desc)
+    return tool(_submit, description=desc, args_schema=SubmitArgs)
