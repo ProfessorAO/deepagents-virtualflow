@@ -193,9 +193,14 @@ def create_submit_tool(
         model_type, tool_choice_name = _ensure_model(schema)
         # Minor debug output for visibility when Trustcall is used
         print("[submit] Trustcall: initializing extractor…")
-        extractor = create_extractor(
-            _llm, tools=[model_type], tool_choice=tool_choice_name, max_attempts=3
-        )
+        # Support multiple Trustcall versions: prefer explicit tool_choice; fallback if unsupported
+        try:
+            extractor = create_extractor(
+                _llm, tools=[model_type], tool_choice=tool_choice_name
+            )
+        except TypeError:
+            # Older Trustcall may not support tool_choice; fall back to minimal signature
+            extractor = create_extractor(_llm, tools=[model_type])
         extractor_holder["extractor"] = extractor
         return extractor
 
