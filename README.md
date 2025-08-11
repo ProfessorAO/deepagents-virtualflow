@@ -10,7 +10,7 @@ This repository is Virtualflow Technologies’ maintained distribution of deep a
 - Default Fireworks models (configurable)
 - A robust in-memory virtual filesystem with nested paths
 - Comprehensive built-in tools (`ls`, `read_file`, `write_file`, `edit_file`, `write_todos`)
-- Optional structured submission via Pydantic + Trustcall
+ 
 
 Original project: [hwchase17/deepagents](https://github.com/hwchase17/deepagents)
 
@@ -18,8 +18,7 @@ Original project: [hwchase17/deepagents](https://github.com/hwchase17/deepagents
 
 ```bash
 pip install deepagents
-# With Trustcall for structured submissions
-pip install "deepagents[structured]"
+ 
 ```
 
 ## Quickstart
@@ -134,7 +133,6 @@ agent = create_deep_agent(
 By default, Virtualflow Deep Agents use a Fireworks-hosted model via `langchain-fireworks`:
 
 - Default chat model: `accounts/fireworks/models/kimi-k2-instruct`
-- Default structuring model (for Trustcall extraction): `accounts/fireworks/models/llama4-maverick-instruct-basic`
 - Required env var: `FIREWORKS_API_KEY`
 
 You can customize this by passing any [LangChain model object](https://python.langchain.com/docs/integrations/chat/).
@@ -224,62 +222,7 @@ result["files"]
   - If `replace_all=False`, the edit requires `old_string` to be unique in the file; otherwise it returns a friendly error suggesting `replace_all=True` or providing more specific context.
   - Updates the file in the virtual filesystem and emits a corresponding tool message.
 
-### Submitting structured outputs (Optional)
-
-You can require the agent to submit its final work in a strict Pydantic schema. Pass your schema via `submit_schema` and a `submit` tool will be auto-injected. The tool validates with Pydantic first and falls back to [Trustcall](https://github.com/hinthornw/trustcall?tab=readme-ov-file#complex-schema) to coerce/repair difficult outputs.
-
-Installation options:
-- Core package only: `pip install deepagents`
-- With Trustcall support: `pip install deepagents[structured]`
-
-```python
-from pydantic import BaseModel, Field
-from deepagents import create_deep_agent
-
-class AnalysisReport(BaseModel):
-    title: str
-    summary: str
-    items: list[str] = Field(default_factory=list)
-
-agent = create_deep_agent(
-    tools=[...],
-    instructions="At the end, call the 'submit' tool to submit your work in the required format.",
-    submit_schema=AnalysisReport,          # auto-adds a submit tool named 'submit'
-    submit_llm=None,                       # optional; defaults to a structuring model via get_default_structuring_model()
-)
-
-res = agent.invoke({"messages": [("user", "Do the task and submit") ]})
-res["submission"]        # JSON string matching AnalysisReport (non-empty when submitted)
-```
-
-#### Variant responses with Union
-
-You can allow the agent to submit one of multiple formats by using a discriminated Union in your schema:
-
-```python
-from typing import Literal, Union, Annotated
-from pydantic import BaseModel, Field
-
-class AnalysisReport(BaseModel):
-    kind: Literal["report"]
-    title: str
-    summary: str
-
-class AgentScratchpad(BaseModel):
-    kind: Literal["scratchpad"]
-    notes: list[str]
-
-class AgentResponse(BaseModel):
-    response: Annotated[Union[AnalysisReport, AgentScratchpad], Field(discriminator="kind")]
-
-agent = create_deep_agent(
-    tools=[...],
-    instructions="Pick the appropriate response variant; set 'kind' accordingly, then call submit.",
-    submit_schema=AgentResponse,
-)
-```
-
-This works with the fast Pydantic path and the Trustcall fallback for complex/nested schemas.
+ 
 
 ### Sub Agents
 
