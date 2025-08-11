@@ -377,4 +377,5 @@ def create_submit_tool(
     # Assign the desired tool name via function __name__ (decorator infers name from func)
     _submit.__name__ = tool_name
 
-    return tool(_submit, description=desc)
+    # Expose only the validated args schema (draft) to the model; injected params remain hidden
+    return tool(_submit, description=desc, args_schema=SubmitArgs)
