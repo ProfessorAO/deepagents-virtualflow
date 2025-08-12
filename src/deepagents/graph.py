@@ -9,7 +9,7 @@ from deepagents.tools import (
 )
 from deepagents.prompts import BASE_PROMPT
 from deepagents.state import DeepAgentState
-from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
+from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional, Literal
 from langchain_core.tools import BaseTool
 from langchain_core.language_models import LanguageModelLike
 
@@ -36,50 +36,88 @@ def _compose_prompt(instructions: str) -> str:
 
 def create_deep_agent(
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
-    instructions: str,
+    instructions: Optional[str] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
-    subagents: list[SubAgent] = None,
+    subagents: Optional[list[SubAgent]] = None,
     state_schema: Optional[StateSchemaType] = None,
+    *,
+    # Pass-through options to the underlying create_react_agent
+    prompt: Optional[Any] = None,
+    response_format: Optional[Any] = None,
+    pre_model_hook: Optional[Any] = None,
+    post_model_hook: Optional[Any] = None,
+    context_schema: Optional[Type[Any]] = None,
+    checkpointer: Optional[Any] = None,
+    store: Optional[Any] = None,
+    interrupt_before: Optional[list[str]] = None,
+    interrupt_after: Optional[list[str]] = None,
+    debug: bool = False,
+    version: Literal["v1", "v2"] = "v2",
+    name: Optional[str] = None,
 ):
     """Create a deep agent.
 
     This agent will by default have access to a tool to write todos (write_todos),
-    and then four file editing tools: write_file, ls, read_file, edit_file.
+    and four file editing tools: write_file, ls, read_file, edit_file. It also
+    exposes most configuration options supported by the underlying ReAct agent.
 
     Args:
-        tools: The additional tools the agent should have access to.
-        instructions: The additional instructions the agent should have. Will go in
-            the system prompt.
-        model: The model to use.
-        subagents: The subagents to use. Each subagent should be a dictionary with the
-            following keys:
-                - `name`
-                - `description` (used by the main agent to decide whether to call the sub agent)
-                - `prompt` (used as the system prompt in the subagent)
-                - (optional) `tools`
-        state_schema: The schema of the deep agent. Should subclass from DeepAgentState
+        tools: Additional tools the agent should have access to.
+        instructions: Optional extra instructions appended to the base prompt.
+        model: The model to use. If omitted, a default is selected.
+        subagents: Optional list of subagent descriptors used by the Task tool.
+        state_schema: Optional schema of the deep agent; should subclass DeepAgentState.
+
+        prompt: Optional prompt override passed directly to the underlying agent. If not
+            provided, a prompt is composed from the base prompt and ``instructions`` (if any).
+        response_format: Optional structured response schema for the final output.
+        pre_model_hook: Optional callable/runnable executed before the LLM call.
+        post_model_hook: Optional callable/runnable executed after the LLM call.
+        context_schema: Optional schema for run-scoped context.
+        checkpointer: Optional checkpointer for persistence.
+        store: Optional store for cross-thread persistence.
+        interrupt_before: Optional list of node names to interrupt before ("agent", "tools").
+        interrupt_after: Optional list of node names to interrupt after ("agent", "tools").
+        debug: Enable debug mode.
+        version: Agent graph version ("v1" or "v2").
+        name: Optional name for the compiled graph.
     """
 
-    prompt = _compose_prompt(
-        instructions=instructions,
+    # Derive prompt if not explicitly provided
+    prompt_to_use = prompt if prompt is not None else (
+        _compose_prompt(instructions=instructions or "")
     )
 
     if model is None:
         model = get_default_model()
     state_schema = state_schema or DeepAgentState
+
     # Sub-agents should only have access to built-in tools, not user tools
     task_tool = _create_task_tool(
         BUILT_IN_TOOLS,
-        instructions,
+        instructions or "",
         subagents or [],
         model,
-        state_schema
+        state_schema,
     )
+
     # Order: built-in tools, user tools, and the task tool
     all_tools = BUILT_IN_TOOLS + list(tools) + [task_tool]
+
     return create_react_agent(
         model,
-        prompt=prompt,
         tools=all_tools,
+        prompt=prompt_to_use,
+        response_format=response_format,
+        pre_model_hook=pre_model_hook,
+        post_model_hook=post_model_hook,
         state_schema=state_schema,
+        context_schema=context_schema,
+        checkpointer=checkpointer,
+        store=store,
+        interrupt_before=interrupt_before,
+        interrupt_after=interrupt_after,
+        debug=debug,
+        version=version,
+        name=name,
     )
