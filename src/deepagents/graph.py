@@ -14,6 +14,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.language_models import LanguageModelLike
 
 from langgraph.prebuilt import create_react_agent
+import json
 
 StateSchema = TypeVar("StateSchema", bound=DeepAgentState)
 StateSchemaType = Type[StateSchema]
@@ -40,6 +41,7 @@ def create_deep_agent(
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: Optional[list[SubAgent]] = None,
     pre_loaded_files: Optional[dict[str, str]] = None,
+    user_data: Optional[Any] = None,
     state_schema: Optional[StateSchemaType] = None,
     *,
     # Pass-through options to the underlying create_react_agent
@@ -70,6 +72,10 @@ def create_deep_agent(
         pre_loaded_files: Optional dictionary of file paths to file contents to preload
             into the agent's virtual filesystem. These files will be available immediately
             when the agent starts.
+        user_data: Optional arbitrary user-provided data. When provided, it will be
+            serialized with json.dumps and injected into the virtual filesystem at
+            "user_data.json" on each invocation (unless that key already exists in
+            the input files for that call).
         state_schema: Optional schema of the deep agent; should subclass DeepAgentState.
 
         prompt: Optional prompt override passed directly to the underlying agent. If not
@@ -127,8 +133,8 @@ def create_deep_agent(
         name=name,
     )
 
-    # If pre_loaded_files are provided, create a wrapper that initializes the state
-    if pre_loaded_files:
+    # If pre_loaded_files and/or user_data are provided, create a wrapper that initializes the state
+    if pre_loaded_files or (user_data is not None):
         original_invoke = agent.invoke
         
         def invoke_with_preloaded_files(inputs, **kwargs):
@@ -137,7 +143,16 @@ def create_deep_agent(
                 inputs["files"] = {}
             
             # Merge pre_loaded_files with any existing files
-            inputs["files"].update(pre_loaded_files)
+            if pre_loaded_files:
+                inputs["files"].update(pre_loaded_files)
+
+            # Inject user_data.json if provided and not already present in this invocation
+            if user_data is not None and "user_data.json" not in inputs["files"]:
+                try:
+                    inputs["files"]["user_data.json"] = json.dumps(user_data)
+                except TypeError:
+                    # Fallback: best-effort string conversion if data is not JSON-serializable
+                    inputs["files"]["user_data.json"] = str(user_data)
             
             return original_invoke(inputs, **kwargs)
         
