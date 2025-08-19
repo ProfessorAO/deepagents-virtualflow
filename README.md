@@ -187,13 +187,40 @@ Nested paths are supported. You can use keys like `src/utils/helpers.py` or `rep
 
 These files can be passed in (and also retrieved) by using the `files` key in the LangGraph State object.
 
+#### Method 1: Preload files when creating the agent
+
+You can preload files into the agent's virtual filesystem when creating it:
+
+```python
+# Define initial files
+initial_files = {
+    "README.md": "# My Project\n\nThis is a sample project.",
+    "src/main.py": "def main():\n    print('Hello!')\n\nif __name__ == '__main__':\n    main()"
+}
+
+# Create agent with preloaded files
+agent = create_deep_agent(
+    tools=[],
+    instructions="You are a helpful assistant.",
+    pre_loaded_files=initial_files
+)
+
+# Files are automatically available in all subsequent invocations
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "What files do you have access to?"}]
+})
+```
+
+#### Method 2: Pass files when invoking the agent
+
+You can also pass files directly when invoking the agent:
+
 ```python
 agent = create_deep_agent(...)
 
 result = agent.invoke({
-    "messages": ...,
-    # Pass in files to the agent using this key
-    # "files": {"foo.txt": "foo", ...}
+    "messages": [{"role": "user", "content": "Process this data"}],
+    "files": {"data.csv": "name,age\nAlice,30\nBob,25"}
 })
 
 # Access any files afterwards like this

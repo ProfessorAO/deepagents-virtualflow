@@ -39,6 +39,7 @@ def create_deep_agent(
     instructions: Optional[str] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: Optional[list[SubAgent]] = None,
+    pre_loaded_files: Optional[dict[str, str]] = None,
     state_schema: Optional[StateSchemaType] = None,
     *,
     # Pass-through options to the underlying create_react_agent
@@ -66,6 +67,9 @@ def create_deep_agent(
         instructions: Optional extra instructions appended to the base prompt.
         model: The model to use. If omitted, a default is selected.
         subagents: Optional list of subagent descriptors used by the Task tool.
+        pre_loaded_files: Optional dictionary of file paths to file contents to preload
+            into the agent's virtual filesystem. These files will be available immediately
+            when the agent starts.
         state_schema: Optional schema of the deep agent; should subclass DeepAgentState.
 
         prompt: Optional prompt override passed directly to the underlying agent. If not
@@ -104,7 +108,8 @@ def create_deep_agent(
     # Order: built-in tools, user tools, and the task tool
     all_tools = BUILT_IN_TOOLS + list(tools) + [task_tool]
 
-    return create_react_agent(
+    # Create the agent
+    agent = create_react_agent(
         model,
         tools=all_tools,
         prompt=prompt_to_use,
@@ -121,3 +126,22 @@ def create_deep_agent(
         version=version,
         name=name,
     )
+
+    # If pre_loaded_files are provided, create a wrapper that initializes the state
+    if pre_loaded_files:
+        original_invoke = agent.invoke
+        
+        def invoke_with_preloaded_files(inputs):
+            # Initialize files in the input if not already present
+            if "files" not in inputs:
+                inputs["files"] = {}
+            
+            # Merge pre_loaded_files with any existing files
+            inputs["files"].update(pre_loaded_files)
+            
+            return original_invoke(inputs)
+        
+        # Replace the invoke method
+        agent.invoke = invoke_with_preloaded_files
+
+    return agent
