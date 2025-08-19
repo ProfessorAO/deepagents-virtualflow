@@ -131,7 +131,7 @@ def create_deep_agent(
     if pre_loaded_files:
         original_invoke = agent.invoke
         
-        def invoke_with_preloaded_files(inputs):
+        def invoke_with_preloaded_files(inputs, **kwargs):
             # Initialize files in the input if not already present
             if "files" not in inputs:
                 inputs["files"] = {}
@@ -139,7 +139,7 @@ def create_deep_agent(
             # Merge pre_loaded_files with any existing files
             inputs["files"].update(pre_loaded_files)
             
-            return original_invoke(inputs)
+            return original_invoke(inputs, **kwargs)
         
         # Replace the invoke method
         agent.invoke = invoke_with_preloaded_files
