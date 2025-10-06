@@ -40,7 +40,6 @@ def create_deep_agent(
     instructions: Optional[str] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: Optional[list[SubAgent]] = None,
-    pre_loaded_files: Optional[dict[str, str]] = None,
     user_data: Optional[Any] = None,
     state_schema: Optional[StateSchemaType] = None,
     *,
@@ -69,9 +68,6 @@ def create_deep_agent(
         instructions: Optional extra instructions appended to the base prompt.
         model: The model to use. If omitted, a default is selected.
         subagents: Optional list of subagent descriptors used by the Task tool.
-        pre_loaded_files: Optional dictionary of file paths to file contents to preload
-            into the agent's virtual filesystem. These files will be available immediately
-            when the agent starts.
         user_data: Optional arbitrary user-provided data. When provided, it will be
             serialized with json.dumps and injected into the virtual filesystem at
             "user_data.json" on each invocation (unless that key already exists in
@@ -133,21 +129,17 @@ def create_deep_agent(
         name=name,
     )
 
-    # If pre_loaded_files and/or user_data are provided, create a wrapper that initializes the state
-    if pre_loaded_files or (user_data is not None):
+    # If user_data is provided, create a wrapper that initializes the state
+    if user_data is not None:
         original_invoke = agent.invoke
         
-        def invoke_with_preloaded_files(inputs, **kwargs):
+        def invoke_with_user_data(inputs, **kwargs):
             # Initialize files in the input if not already present
             if "files" not in inputs:
                 inputs["files"] = {}
-            
-            # Merge pre_loaded_files with any existing files
-            if pre_loaded_files:
-                inputs["files"].update(pre_loaded_files)
 
             # Inject user_data.json if provided and not already present in this invocation
-            if user_data is not None and "user_data.json" not in inputs["files"]:
+            if "user_data.json" not in inputs["files"]:
                 try:
                     inputs["files"]["user_data.json"] = json.dumps(user_data)
                 except TypeError:
@@ -157,6 +149,6 @@ def create_deep_agent(
             return original_invoke(inputs, **kwargs)
         
         # Replace the invoke method
-        agent.invoke = invoke_with_preloaded_files
+        agent.invoke = invoke_with_user_data
 
     return agent

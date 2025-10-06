@@ -36,13 +36,13 @@ def _create_task_tool(tools, instructions, subagents: list[SubAgent], model, sta
             model, prompt=_agent["prompt"], tools=_tools, state_schema=state_schema
         )
 
-    other_agents_string = [
+    other_agents_string = "\n".join(
         f"- {_agent['name']}: {_agent['description']}" for _agent in subagents
-    ]
+    )
 
     @tool(
         description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string)
-        + TASK_DESCRIPTION_SUFFIX
+        + "\n" + TASK_DESCRIPTION_SUFFIX
     )
     def task(
         description: str,
