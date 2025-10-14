@@ -1,13 +1,5 @@
 WRITE_TODOS_DESCRIPTION = "Create and update a concise todo list for this session. Use it for multi-step tasks and keep task states current in real time."
 
-TASK_DESCRIPTION_PREFIX = "Launch a sub-agent to autonomously handle a task. Available agent types:\n{other_agents}"
-
-TASK_DESCRIPTION_SUFFIX = "Specify subagent_type and a description. The agent runs once and returns a single result message."
-
-EDIT_DESCRIPTION = "Replace text in a virtual file. Provide old_string and new_string; set replace_all to change all occurrences."
-
-TOOL_DESCRIPTION = "Read a file from the virtual filesystem with optional offset and limit; returns cat -n styled lines."
-
 BASE_PROMPT = """You have access to a number of standard tools to plan, create, and edit content in a virtual filesystem. Work methodically, show your progress via todos, and prefer precise edits over broad rewrites.
 
 ## Planning with `write_todos`
@@ -53,9 +45,4 @@ The next section contains additional, project-specific instructions that appear 
 - Summarize them into your todo plan so you do not forget any critical requirements
 - If guidance here seems in tension with the project instructions, prefer the project instructions
 """
-
-LS_DESCRIPTION = "List all file paths currently stored in the virtual filesystem."
-
-WRITE_FILE_DESCRIPTION = "Write or overwrite a file at file_path in the virtual filesystem with the given content."
-
 

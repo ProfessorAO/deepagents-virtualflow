@@ -1,4 +1,3 @@
-from deepagents.sub_agent import _create_task_tool, SubAgent
 from deepagents.model import get_default_model
 from deepagents.tools import (
     write_todos,
@@ -39,7 +38,6 @@ def create_deep_agent(
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
     instructions: Optional[str] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
-    subagents: Optional[list[SubAgent]] = None,
     user_data: Optional[Any] = None,
     state_schema: Optional[StateSchemaType] = None,
     *,
@@ -67,7 +65,6 @@ def create_deep_agent(
         tools: Additional tools the agent should have access to.
         instructions: Optional extra instructions appended to the base prompt.
         model: The model to use. If omitted, a default is selected.
-        subagents: Optional list of subagent descriptors used by the Task tool.
         user_data: Optional arbitrary user-provided data. When provided, it will be
             serialized with json.dumps and injected into the virtual filesystem at
             "user_data.json" on each invocation (unless that key already exists in
@@ -98,17 +95,8 @@ def create_deep_agent(
         model = get_default_model()
     state_schema = state_schema or DeepAgentState
 
-    # Sub-agents should only have access to built-in tools, not user tools
-    task_tool = _create_task_tool(
-        BUILT_IN_TOOLS,
-        instructions or "",
-        subagents or [],
-        model,
-        state_schema,
-    )
-
-    # Order: built-in tools, user tools, and the task tool
-    all_tools = BUILT_IN_TOOLS + list(tools) + [task_tool]
+    # Order: built-in tools, user tools
+    all_tools = BUILT_IN_TOOLS + list(tools) 
 
     # Create the agent
     agent = create_react_agent(
