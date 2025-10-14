@@ -5,11 +5,7 @@ from typing import Annotated
 from langgraph.prebuilt import InjectedState
 
 from deepagents.prompts import (
-    WRITE_TODOS_DESCRIPTION,
-    EDIT_DESCRIPTION,
-    TOOL_DESCRIPTION,
-    LS_DESCRIPTION,
-    WRITE_FILE_DESCRIPTION,
+    WRITE_TODOS_DESCRIPTION
 )
 from deepagents.state import Todo, DeepAgentState
 
