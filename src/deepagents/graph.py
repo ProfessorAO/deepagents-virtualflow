@@ -1,10 +1,6 @@
 from deepagents.model import get_default_model
 from deepagents.tools import (
     write_todos,
-    write_file,
-    read_file,
-    ls,
-    edit_file,
 )
 from deepagents.prompts import BASE_PROMPT
 from deepagents.state import DeepAgentState
@@ -18,8 +14,6 @@ import json
 StateSchema = TypeVar("StateSchema", bound=DeepAgentState)
 StateSchemaType = Type[StateSchema]
 
-# Built-in tools provided by every deep agent
-BUILT_IN_TOOLS = [write_todos, write_file, read_file, ls, edit_file]
 
 
 def _compose_prompt(instructions: str) -> str:
@@ -96,7 +90,7 @@ def create_deep_agent(
     state_schema = state_schema or DeepAgentState
 
     # Order: built-in tools, user tools
-    all_tools = BUILT_IN_TOOLS + list(tools) 
+    all_tools = [write_todos] + list(tools) 
 
     # Create the agent
     agent = create_react_agent(
